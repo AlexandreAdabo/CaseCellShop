@@ -1,0 +1,308 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CaseCellShop Backend Challenge API",
+    "version": "1.0.0",
+    "description": "API de catálogo com cache Redis e fallback em memória, checkout assíncrono e consulta de status de pedidos."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "API healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" }
+                  },
+                  "required": ["ok"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Simple metrics snapshot",
+        "responses": {
+          "200": {
+            "description": "Metrics values",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cacheHit": { "type": "integer", "minimum": 0 },
+                    "cacheMiss": { "type": "integer", "minimum": 0 },
+                    "checkoutAccepted": { "type": "integer", "minimum": 0 },
+                    "checkoutEnqueued": { "type": "integer", "minimum": 0 },
+                    "checkoutProcessing": { "type": "integer", "minimum": 0 },
+                    "checkoutCompleted": { "type": "integer", "minimum": 0 },
+                    "checkoutFailed": { "type": "integer", "minimum": 0 },
+                    "queueDepth": { "type": "integer", "minimum": 0 }
+                  },
+                  "required": [
+                    "cacheHit",
+                    "cacheMiss",
+                    "checkoutAccepted",
+                    "checkoutEnqueued",
+                    "checkoutProcessing",
+                    "checkoutCompleted",
+                    "checkoutFailed",
+                    "queueDepth"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/products": {
+      "get": {
+        "summary": "List products with cache",
+        "responses": {
+          "200": {
+            "description": "Products list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/checkout": {
+      "post": {
+        "summary": "Start an asynchronous checkout",
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Checkout accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutAcceptedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency key conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Product not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Out of stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders/{orderId}/status": {
+      "get": {
+        "summary": "Get order status",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Order status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Order not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Product": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "priceCents": { "type": "integer", "minimum": 0 },
+          "stockAvailable": { "type": "integer", "minimum": 0 },
+          "stockReserved": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["id", "name", "description", "priceCents", "stockAvailable", "stockReserved"]
+      },
+      "ProductsResponse": {
+        "type": "object",
+        "properties": {
+          "products": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Product"
+            }
+          }
+        },
+        "required": ["products"]
+      },
+      "CheckoutItem": {
+        "type": "object",
+        "properties": {
+          "productId": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["productId", "quantity"]
+      },
+      "CheckoutRequest": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/CheckoutItem"
+            }
+          }
+        },
+        "required": ["items"]
+      },
+      "CheckoutAcceptedResponse": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "processing", "completed", "failed"]
+          },
+          "statusUrl": { "type": "string" },
+          "totalCents": { "type": "integer", "minimum": 0 },
+          "idempotencyKey": { "type": "string" }
+        },
+        "required": ["orderId", "status", "statusUrl", "totalCents"]
+      },
+      "OrderStatusResponse": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "processing", "completed", "failed"]
+          },
+          "totalCents": { "type": "integer", "minimum": 0 },
+          "idempotencyKey": { "type": ["string", "null"] },
+          "errorMessage": { "type": ["string", "null"] },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "statusUrl": { "type": "string" }
+        },
+        "required": [
+          "orderId",
+          "status",
+          "totalCents",
+          "idempotencyKey",
+          "errorMessage",
+          "createdAt",
+          "updatedAt",
+          "statusUrl"
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "details": {}
+            },
+            "required": ["code", "message"]
+          }
+        },
+        "required": ["error"]
+      }
+    }
+  }
+}
