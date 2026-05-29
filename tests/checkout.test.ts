@@ -67,7 +67,7 @@ test('POST /checkout creates an async order and idempotency returns the same ord
 });
 
 test('POST /checkout requires idempotency-key in the header', async (t) => {
-  const harness = await createTestHarness({ workerDelayMs: 25 });
+  const harness = await createTestHarness({ workerDelayMs: 25, redisUrl: '' });
   t.after(async () => {
     await harness.close();
   });

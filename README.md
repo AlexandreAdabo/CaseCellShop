@@ -61,14 +61,17 @@ Trade-off:
 - Vantagem: sem servidor externo, instalação mais simples e transações locais confiáveis.
 - Desvantagem: não é a melhor escolha para alta concorrência distribuída ou multi-instância.
 
-### Redis via `node-redis`
+### Redis via `ioredis` / `BullMQ`
 
-O cache de produtos usa Redis como backend principal, com fallback em memória quando a conexão não está disponível.
+Redis é usado em duas frentes:
+
+- **Cache de produtos** — backend principal com fallback em memória quando a conexão não está disponível.
+- **Fila de checkout assíncrono** — o `POST /checkout` enfileira o pedido no BullMQ, e um worker Redis processa a finalização do estoque em segundo plano. Sem Redis, o checkout cai para processamento síncrono inline.
 
 Trade-off:
 
-- Vantagem: cache distribuído, TTL centralizado e possibilidade de compartilhar estado entre instâncias.
-- Desvantagem: adiciona dependência de infraestrutura, latência de rede e necessidade de tratamento de indisponibilidade.
+- Vantagem: cache distribuído, TTL centralizado, fila resiliente e possibilidade de compartilhar estado entre instâncias.
+- Desvantagem: adiciona dependência de infraestrutura, latência de rede e necessidade de tratamento de indisponibilidade (a aplicação degrada graciosamente).
 
 ### `node:test`
 
@@ -106,24 +109,37 @@ REDIS_URL=redis://localhost:6379
 
 ## Como rodar
 
+### Pré-requisitos
+
+- Node.js 23+
+- Docker (para Redis)
+
+### Setup rápido
+
 ```bash
+# 1. instalar dependências
 npm install
+
+# 2. subir Redis com Docker
+npm run docker:up
+
+# 3. iniciar a API
 npm run dev
 ```
 
 Por padrão a API sobe em `http://localhost:3000`.
 
+> Sem Docker/Redis a aplicação ainda funciona — o cache cai para memória e o checkout processa de forma síncrona. Para desenvolvimento local com Redis, use Docker Compose.
+
 ### Outros comandos
 
 ```bash
-npm run check
-npm test
-npm run build
+npm run docker:up       # sobe Redis via Docker Compose
+npm run docker:down     # derruba o container Redis
+npm run check           # typecheck
+npm test                # testes automatizados
+npm run build           # compilação TypeScript
 ```
-
-- `npm run check` executa o typecheck.
-- `npm test` roda os testes automatizados.
-- `npm run build` gera a compilação TypeScript.
 
 ## Modelo de Arquitetura
 
@@ -310,6 +326,22 @@ Campos:
 - `checkoutFailed`
 - `queueDepth`
 
+### `GET /health`
+
+Retorna o status dos componentes internos.
+
+```json
+{
+  "status": "ok",
+  "uptime": 1234.56,
+  "sqlite": { "connected": true },
+  "redis": { "connected": true }
+}
+```
+
+- `sqlite.connected` — `true` se o banco local respondeu `SELECT 1`.
+- `redis.connected` — `true` se o Redis está conectado e respondendo.
+
 ### `GET /openapi.json`
 
 Entrega o contrato OpenAPI da aplicação.
@@ -358,11 +390,11 @@ npm test
 ## Limitações assumidas
 
 - Tudo roda em um único processo.
-- A fila do worker é local.
+- A fila do worker é local (BullMQ em Redis local).
 - Não há autenticação.
 - Não há pagamento real.
 - Não há integração com ERP.
-- O Redis é usado somente para cache de catálogo, não para pedidos ou fila.
+- Redis é usado para cache de catálogo e fila de checkout; sem Redis o checkout degrada para síncrono.
 
 ## Estrutura principal
 

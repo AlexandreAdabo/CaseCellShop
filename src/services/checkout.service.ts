@@ -33,7 +33,7 @@ export class CheckoutService {
     private readonly orderRepository: OrderRepository,
     private readonly productRepository: ProductRepository,
     private readonly productCache: ProductCache<Product[]>,
-    private readonly queue: Queue<CheckoutJobData>,
+    private readonly queue: Queue<CheckoutJobData> | null,
     private readonly metrics: Metrics,
     private readonly logger: AppLogger,
   ) {}
@@ -133,19 +133,29 @@ export class CheckoutService {
           error: error instanceof Error ? { message: error.message, name: error.name } : { message: String(error) },
         }, 'products.cache.clear_failed');
       });
-      this.metrics.increment('checkoutEnqueued');
-      this.logger.info({
-        orderId: result.orderId,
-        requestId: context.requestId,
-        traceId: context.traceId,
-        idempotencyKey: result.idempotencyKey ?? undefined,
-      }, 'checkout.enqueued');
-      void this.queue.add('process', {
-        orderId: result.orderId,
-        requestId: context.requestId,
-        traceId: context.traceId,
-        idempotencyKey: result.idempotencyKey,
-      }, { jobId: result.orderId });
+
+      if (this.queue) {
+        this.metrics.increment('checkoutEnqueued');
+        this.logger.info({
+          orderId: result.orderId,
+          requestId: context.requestId,
+          traceId: context.traceId,
+          idempotencyKey: result.idempotencyKey ?? undefined,
+        }, 'checkout.enqueued');
+        void this.queue.add('process', {
+          orderId: result.orderId,
+          requestId: context.requestId,
+          traceId: context.traceId,
+          idempotencyKey: result.idempotencyKey,
+        }, { jobId: result.orderId });
+      } else {
+        this.logger.info({
+          orderId: result.orderId,
+          requestId: context.requestId,
+          traceId: context.traceId,
+        }, 'checkout.inline.processing');
+        this.processCheckoutInline(result.orderId, context);
+      }
     } else {
       this.logger.info({
         requestId: context.requestId,
@@ -156,5 +166,53 @@ export class CheckoutService {
     }
 
     return result;
+  }
+
+  private processCheckoutInline(orderId: string, context: RequestContext): void {
+    const now = new Date().toISOString();
+    try {
+      this.orderRepository.updateOrderStatus(orderId, 'processing', now);
+
+      const items = this.orderRepository.getOrderItems(orderId);
+      this.orderRepository.transaction(() => {
+        for (const item of items) {
+          this.orderRepository.completeReservedStock(item.productId, item.quantity);
+        }
+        this.orderRepository.updateOrderStatus(orderId, 'completed', new Date().toISOString(), null);
+      });
+
+      this.metrics.increment('checkoutCompleted');
+      this.logger.info({
+        orderId,
+        requestId: context.requestId,
+        traceId: context.traceId,
+      }, 'checkout.inline.completed');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown inline error';
+      try {
+        const items = this.orderRepository.getOrderItems(orderId);
+        this.orderRepository.transaction(() => {
+          for (const item of items) {
+            this.orderRepository.releaseStock(item.productId, item.quantity);
+          }
+          this.orderRepository.updateOrderStatus(orderId, 'failed', new Date().toISOString(), message);
+        });
+      } catch (failError) {
+        this.logger.error({
+          orderId,
+          requestId: context.requestId,
+          traceId: context.traceId,
+          error: failError instanceof Error ? failError.message : 'Unknown failure',
+        }, 'checkout.inline.fail_to_mark_failed');
+      }
+
+      this.metrics.increment('checkoutFailed');
+      this.logger.error({
+        orderId,
+        requestId: context.requestId,
+        traceId: context.traceId,
+        error: message,
+      }, 'checkout.inline.failed');
+    }
   }
 }

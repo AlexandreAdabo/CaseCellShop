@@ -154,6 +154,13 @@ export class ProductCacheManager<T> implements ProductCache<T> {
     }
   }
 
+  get redisInfo(): { configured: boolean; connected: boolean } {
+    if (!this.redisCache) {
+      return { configured: false, connected: false };
+    }
+    return { configured: true, connected: this.connected };
+  }
+
   private getRedisClient(): RedisLikeClient | null {
     if (!this.redisCache) {
       return null;

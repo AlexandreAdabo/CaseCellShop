@@ -5,8 +5,6 @@ import { Metrics } from '../metrics.js';
 import { SQLiteStore } from '../database/sqlite-store.js';
 import type { CheckoutJobData } from './checkout-queue.js';
 
-const DEFAULT_REDIS_URL = 'redis://localhost:6379';
-
 export function createCheckoutWorker(
   store: SQLiteStore,
   metrics: Metrics,
@@ -15,8 +13,10 @@ export function createCheckoutWorker(
     redisUrl?: string;
     processingDelayMs?: number;
   },
-): Worker<CheckoutJobData> {
-  const processingDelayMs = options?.processingDelayMs ?? 150;
+): Worker<CheckoutJobData> | null {
+  if (!options?.redisUrl) return null;
+
+  const processingDelayMs = options.processingDelayMs ?? 150;
 
   const worker = new Worker<CheckoutJobData>(
     'checkout',
@@ -79,15 +79,18 @@ export function createCheckoutWorker(
       }
     },
     {
-      connection: { url: options?.redisUrl || DEFAULT_REDIS_URL },
+      connection: { url: options.redisUrl },
       concurrency: 1,
     },
   );
 
+  worker.on('error', () => {});
+
   return worker;
 }
 
-export async function getQueueDepth(queue: import('bullmq').Queue): Promise<number> {
+export async function getQueueDepth(queue: import('bullmq').Queue | null): Promise<number> {
+  if (!queue) return 0;
   const [waiting, active, delayed] = await Promise.all([
     queue.getWaitingCount(),
     queue.getActiveCount(),

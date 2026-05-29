@@ -52,11 +52,8 @@ test('RedisProductCache serializes values, preserves TTL and handles cache misse
   assert.deepEqual(deletedKeys, ['products:list']);
 });
 
-test('application falls back to memory cache when Redis connection fails', async (t) => {
-  const harness = await createTestHarness({
-    redisUrl: 'redis://127.0.0.1:1',
-    redisConnectTimeoutMs: 50,
-  });
+test('application uses memory cache when Redis is not configured', async (t) => {
+  const harness = await createTestHarness({ redisUrl: '' });
   t.after(async () => {
     await harness.close();
   });

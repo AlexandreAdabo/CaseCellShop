@@ -1,9 +1,5 @@
 import { Queue } from 'bullmq';
 
-const DEFAULT_REDIS_URL = 'redis://localhost:6379';
-
-let queue: Queue | null = null;
-
 export type CheckoutJobData = {
   orderId: string;
   traceId: string;
@@ -11,10 +7,14 @@ export type CheckoutJobData = {
   idempotencyKey?: string | null;
 };
 
-export function getCheckoutQueue(redisUrl?: string): Queue {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let queue: Queue<any, any, string, any, any, string> | null = null;
+
+export function getCheckoutQueue(redisUrl?: string): typeof queue {
+  if (!redisUrl) return null;
   if (!queue) {
     queue = new Queue<CheckoutJobData>('checkout', {
-      connection: { url: redisUrl || DEFAULT_REDIS_URL },
+      connection: { url: redisUrl },
       defaultJobOptions: {
         removeOnComplete: { age: 60 * 60 * 24 },
         removeOnFail: { age: 60 * 60 * 24 * 7 },

@@ -349,6 +349,15 @@ export class SQLiteStore {
     }));
   }
 
+  ping(): boolean {
+    try {
+      this.db.prepare('SELECT 1').get();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   static defaultPath(): string {
     return path.join(process.cwd(), 'data', 'casecellshop.sqlite');
   }

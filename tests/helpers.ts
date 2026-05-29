@@ -35,7 +35,7 @@ export async function createTestHarness(options?: {
   const metrics = new Metrics();
   const logger = createLogger({ service: 'casecellshop-test' });
   const env = loadEnv();
-  const { app, worker, cache, dispose } = await createApp({
+  const { app, worker, cache } = await createApp({
     store,
     metrics,
     logger,
@@ -56,8 +56,8 @@ export async function createTestHarness(options?: {
   }
 
   const close = async (): Promise<void> => {
-    worker?.close();
-    await dispose();
+    await worker?.close();
+    await cache.dispose();
     store.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   };

@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import swaggerUi from 'swagger-ui-express';
+import type { SQLiteStore } from '../infrastructure/database/sqlite-store.js';
+import type { ProductCacheManager } from '../infrastructure/cache/product-cache-manager.js';
 import type { Metrics } from '../infrastructure/metrics.js';
+import type { Product } from '../domain/types.js';
 import type { CheckoutController } from '../controllers/checkout.controller.js';
 import type { ProductController } from '../controllers/product.controller.js';
 import type { OrderController } from '../controllers/order.controller.js';
@@ -17,6 +20,8 @@ function loadOpenApiDocument(): unknown {
 export function registerRoutes(
   app: Express,
   dependencies: {
+    store: SQLiteStore;
+    cache: ProductCacheManager<Product[]>;
     metrics: Metrics;
     queueDepth: () => Promise<number>;
     productController: ProductController;
@@ -36,7 +41,13 @@ export function registerRoutes(
   }));
 
   app.get('/health', (_req, res) => {
-    res.json({ ok: true });
+    const sqliteOk = dependencies.store.ping();
+    const redis = dependencies.cache.redisInfo;
+    res.json({
+      ok: sqliteOk,
+      sqlite: sqliteOk ? 'connected' : 'disconnected',
+      redis,
+    });
   });
 
   app.get('/openapi.json', (_req, res) => {

@@ -49,7 +49,7 @@ export async function createApp(options: CreateAppOptions) {
   });
 
   const queue = getCheckoutQueue(redisUrl);
-  const worker = (options.autoStartWorker ?? true)
+  const worker = queue && (options.autoStartWorker ?? true)
     ? createCheckoutWorker(store, metrics, logger.child({ component: 'checkout-worker' }), {
         redisUrl,
         processingDelayMs: options.workerProcessingDelayMs ?? 150,
@@ -74,6 +74,8 @@ export async function createApp(options: CreateAppOptions) {
   app.use(requestSummaryMiddleware(logger));
 
   registerRoutes(app, {
+    store,
+    cache,
     metrics,
     queueDepth: () => getQueueDepth(queue),
     productController,
